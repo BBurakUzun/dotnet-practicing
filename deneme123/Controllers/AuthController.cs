@@ -4,6 +4,8 @@ using deneme123.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using FluentValidation;
+using deneme123.Services;
 
 namespace deneme123.Controllers
 {
@@ -13,19 +15,23 @@ namespace deneme123.Controllers
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
+        private readonly IJwtTokenService _jwtTokenService;
 
-        public AuthController(UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager)
+        public AuthController(UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager, IJwtTokenService jwtTokenService)
         {
             this._userManager = userManager;
             this._signInManager = signInManager;
+            this._jwtTokenService = jwtTokenService;
         }
 
         [HttpPost("signup")]
-        public async Task<IActionResult> SignUp([FromBody] RegisterRequest req)
+        public async Task<IActionResult> SignUp([FromBody] RegisterRequest req, [FromServices] IValidator<RegisterRequest> validator)
         {
-            if (req == null || string.IsNullOrEmpty(req.Username) || string.IsNullOrEmpty(req.Password))
+            var validationResult = await validator.ValidateAsync(req);
+
+            if (!validationResult.IsValid)
             {
-                return BadRequest("Geçersiz veri girişi");
+                return BadRequest(validationResult.Errors);
             }
 
             var user = new ApplicationUser
@@ -43,16 +49,28 @@ namespace deneme123.Controllers
         }
 
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] AuthRequest req)
+        public async Task<IActionResult> Login([FromBody] LoginRequest req)
         {
             var result = await _signInManager.PasswordSignInAsync(req.Username, req.Password, false, false);
 
             if (!result.Succeeded)
                 return Unauthorized("Giriş başarısız");
 
-            return Ok(new { Message = "Giriş başarılı" });
+            var user = await _userManager.FindByNameAsync(req.Username);
+            if (user == null)
+                return NotFound("Kullanıcı bulunamadı");
+
+            var token = await _jwtTokenService.GenerateTokenAsync(user);
+
+            return Ok(new { Token = token});
         }
 
+        [HttpPost("logout")]
+        public async Task<IActionResult> LogOut()
+        {
+            await _signInManager.SignOutAsync();
+            return Ok(new { Message = "Çıkış başarılı" });
+        }
 
 
         /*
